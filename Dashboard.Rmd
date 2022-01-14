@@ -1,0 +1,956 @@
+---
+title: "Table Sample"
+output: 
+    flexdashboard::flex_dashboard
+---
+
+
+<script>
+$(document).ready(function(){
+    $('img.thumb').popover({ html:true, content: function() {
+      var imgURI = $(this).attr('src');
+      return "<img class='popup' src='" + imgURI + "' />";
+    } }); 
+});
+</script>
+
+<style>
+
+  img.thumb {
+    max-width: 100px;
+  }
+  
+</style>
+
+``` {r global}
+library(tidyverse)
+library(flexdashboard)
+library(kableExtra)
+```
+
+```{r get_data, include=FALSE}
+library(dplyr)
+library(readxl)
+# openings <- read_excel("~/VIS/Chess Opening Reference.xlsx")
+library(rchess)
+
+get_player_data <- function(username, month){
+  get_month_urls <- function(){
+    jsonlite::fromJSON(paste0("https://api.chess.com/pub/player/", username, "/games/archives"))$archives
+  }
+  month_urls = get_month_urls()
+  valid_months = c()
+  for (url in month_urls){
+    if (grepl(paste0("2021/", month), url, fixed=TRUE)){
+      valid_months = c(valid_months, url)
+    }
+  }
+  if (length(valid_months) > 0){
+    get_games <- function(y) {
+      y <- jsonlite::fromJSON(y)
+    }
+    # apply function to get a list of all the games and game data
+    games <- valid_months %>% purrr::map(get_games)
+
+    extract_pgn <- function(x){
+      tryCatch( {x <- x$games$pgn}, error = function(x) {x <- NA})
+    }
+    # apply to get a list of all games' metadata
+    extracted_pgns <- games %>% purrr::map(extract_pgn)
+    # function to create a single list to prepare for converting to a data frame
+    create_pgn_list <-function(x) {
+      x <- unlist(x) %>% as.list()
+    }
+    # apply the function to result in a list of each individual game
+    pgn_list <- create_pgn_list(extracted_pgns)
+    
+    extract_rules <- function(x){
+      tryCatch( {x <- x$games$rules}, error = function(x) {x <- NA}) %>% as.character() %>% data.frame() %>%   dplyr::mutate_if(is.factor, as.character)
+    }
+    GameRules <- games %>% purrr::map_df(extract_rules)
+    
+    extract_time_class <- function(x){
+      tryCatch( {x <- x$games$time_class}, error = function(x) {x <- NA}) %>% as.character() %>% data.frame() %>% dplyr::mutate_if(is.factor, as.character)
+    }
+    TimeClass <- games %>%  purrr::map_df(extract_time_class)
+    
+    convert_to_df <- function(exp_list) {
+      if(is.na(exp_list)) {
+        df <- data.frame(Event=NA_character_)
+      } else {
+        pgn_list <- strsplit(exp_list, "\n") %>% unlist()
+        tab_names <- c(gsub( "\\s.*", "", pgn_list[grep("\\[", pgn_list)][-c(length(pgn_list), (length(pgn_list)-1))]) %>% gsub("\\[", "", .), "Moves")
+        tab_values <- gsub(".*[\"]([^\"]+)[\"].*", "\\1", pgn_list[grep("\\[", pgn_list)])
+        if(length(tab_names) != length(tab_values)) {
+          tab_values <- c(tab_values, NA)
+        }
+        #create the df of values
+        df <- rbind(tab_values) %>% data.frame(stringsAsFactors = F)
+        colnames(df) <- tab_names
+        # remove the row names
+        rownames(df) <- c()
+        # need to clean up date variables
+        df$Date <-  gsub("\\.", "-", df$Date)
+        df$EndDate <- gsub("\\.", "-", df$EndDate)
+        new_df = df[, c("Date", "White", "Black", "Result", "WhiteElo", "BlackElo", "Termination")]
+        
+        if ("ECO" %in% colnames(df)){
+          new_df$ECO = df$ECO
+        }
+        
+        return(new_df)
+      }
+
+      
+    }
+    # convert the lists to data frames
+    df <- pgn_list %>% purrr::map_df(convert_to_df)
+    df_type = cbind(GameRules, TimeClass) %>% data.frame()
+    colnames(df_type) <- c("GameRules", "TimeClass")
+    if (length(df)==0){
+      return()
+    }
+    
+    return(cbind(df_type, df))
+    #return(df)
+  }
+}
+
+get_all_player_data <- function(username){
+  months = c("02","03","04","05","06","07","08","09","10","11","12")
+  data = get_player_data(username, "01")
+  for (month in months){
+    new_data = get_player_data(username, month)
+    print(data)
+    print(new_data)
+    new_data = new_data[,  c("GameRules", "TimeClass", "Date", "White", "Black", "Result", "WhiteElo", "BlackElo", "Termination", "ECO")]
+    data = rbind(data, new_data)
+  }
+  return(data)
+}
+
+```
+
+```{r main, include=FALSE}
+#player = readline(prompt = "Introduce un usuario: ")
+streak_range = colorRampPalette(c("#f4b902", "#fa5b35"))(100)
+
+player = "Hikaru"    ##### Change to get a customized dashboard
+data = get_all_player_data(player)
+data = data[data$GameRules=="chess",]
+
+data$WhiteElo = as.numeric(data$WhiteElo)
+data$BlackElo = as.numeric(data$BlackElo)
+data$Date = as.Date(data$Date)
+
+ColorPlayer_list = c()
+Result_list = c()
+PlayerElo = c()
+RivalElo = c()
+
+
+for (i in 1:length(row.names(data))){
+  row = data[i, ]
+  
+  if (row$White == player){
+    ColorPlayer_list = c(ColorPlayer_list, "White")
+    PlayerElo = c(PlayerElo, row$WhiteElo)
+    RivalElo = c(RivalElo, row$BlackElo)
+    if (row$Result == '1-0'){
+      Result_list = c(Result_list, "Win")
+    }
+    else if (row$Result == '0-1'){
+      Result_list = c(Result_list, "Lost")
+    } else {Result_list = c(Result_list, "Draw")}
+    
+  }else {
+    ColorPlayer_list = c(ColorPlayer_list, "black")
+    PlayerElo = c(PlayerElo, row$BlackElo)
+    RivalElo = c(RivalElo, row$WhiteElo)
+    
+    if (row$Result == '0-1'){
+      Result_list = c(Result_list, "Win")
+    }
+    else if (row$Result == '1-0'){
+      Result_list = c(Result_list, "Lost")
+    } else {Result_list = c(Result_list, "Draw")}
+  }
+  
+}
+
+data$ColorPlayer = ColorPlayer_list
+data$Result = Result_list
+data$PlayerElo = PlayerElo
+data$RivalElo = RivalElo
+
+data$White = NULL
+data$Black = NULL
+data$WhiteElo = NULL
+data$BlackElo = NULL
+data$GameRules = NULL
+
+data[startsWith(data$Termination, c(player)) == FALSE, "Termination"] = str_replace(data[startsWith(data$Termination, c(player)) == FALSE, "Termination"], ".*? won", "other won")
+```
+
+
+```{r get_metrics, include=FALSE}
+library(stringr)
+data_blitz = data[data$TimeClass=="blitz",]
+data_bullet = data[data$TimeClass=="bullet",]
+data_rapid = data[data$TimeClass=="rapid",]
+```
+
+```{r get_ECO, include=FALSE}
+library(readxl)
+openings <- read_excel("~/VIS/Chess Opening Reference.xlsx")
+rownames(openings) = openings$`ECO Code`
+
+ecos = c('A00','A01','A02-A03','A04-A09','A10-A39','A40-A41','A42','A43-A44','A45-A46','A47','A48-A49','A50','A51-A52','A53-A55','A56','A57-A59','A60-A79','A80-A99','B00','B01','B02-B05','B06','B07-B09','B10-B19','B20-B99','C00-C19','C20','C21-C22','C23-C24','C25-C29','C30-C39','C40','C41','C42-C43','C44','C45','C46','C47-C49', 'C50', 'C51-C52', 'C53-C54', 'C55-C59', 'C60-C99', 'D00', 'D01', 'D02', 'D03', 'D04-D05', 'D06', 'D07-D09', 'D10-D15', 'D16', 'D17-D19', 'D20-D29', 'D30-D42', 'D43-D49', 'D50-D69', 'D70-D79', 'D80-D99', 'E00', 'E01-E09', 'E10', 'E11', 'E12-E19', 'E20-E59', 'E60-E99')
+
+values = rep(0, length(ecos))
+
+openings_names = c()
+for (eco in ecos){
+  ######### CAMBIAR ESTO A QUE EL SUBSTRING ESE LO BUSQUE EN EL DF
+  openings_names = c(openings_names, openings[substring(eco, first=1, last=3), ]$Name)
+}
+
+##########################
+######### BULLET #########
+##########################
+
+df_eco_bullet = data.frame(ecos, values, openings_names)
+rownames(df_eco_bullet) = ecos
+
+table_bullet_ecos = table(data_bullet[, "ECO"])
+
+for (i in 1:length(table_bullet_ecos)){
+  key = rownames(table_bullet_ecos)[i]
+  val = table_bullet_ecos[i]
+  
+  for (eco in ecos){
+    if (eco == key){
+      df_eco_bullet[eco, "values"] = val
+      break
+    } else if(substring(eco, first=1, last=3) <= key & substring(eco, first=5, last=7) >= key){
+     df_eco_bullet[eco, "values"] = df_eco_bullet[eco, "values"] + val
+     break
+    }
+  }
+}
+
+top_eco_bullet = df_eco_bullet[order(-df_eco_bullet$values),][1:5,]
+colnames(top_eco_bullet) = c("ECO", "values", "Name")
+rownames(top_eco_bullet) = NULL
+
+
+#########################
+######### BLITZ #########
+#########################
+
+df_eco_blitz = data.frame(ecos, values, openings_names)
+rownames(df_eco_blitz) = ecos
+
+table_blitz_ecos = table(data_blitz[, "ECO"])
+
+for (i in 1:length(table_blitz_ecos)){
+  key = rownames(table_blitz_ecos)[i]
+  val = table_blitz_ecos[i]
+  
+  for (eco in ecos){
+    if (eco == key){
+      df_eco_blitz[eco, "values"] = val
+      break
+    } else if(substring(eco, first=1, last=3) <= key & substring(eco, first=5, last=7) >= key){
+     df_eco_blitz[eco, "values"] = df_eco_blitz[eco, "values"] + val
+     break
+    }
+  }
+}
+
+top_eco_blitz = df_eco_blitz[order(-df_eco_blitz$values),][1:5,]
+colnames(top_eco_blitz) = c("ECO", "values", "Name")
+rownames(top_eco_blitz) = NULL
+
+
+#########################
+######### RAPID #########
+#########################
+
+df_eco_rapid = data.frame(ecos, values, openings_names)
+rownames(df_eco_rapid) = ecos
+
+table_rapid_ecos = table(data_rapid[, "ECO"])
+
+for (i in 1:length(table_rapid_ecos)){
+  key = rownames(table_rapid_ecos)[i]
+  val = table_rapid_ecos[i]
+  
+  for (eco in ecos){
+    if (eco == key){
+      df_eco_rapid[eco, "values"] = val
+      break
+    } else if(substring(eco, first=1, last=3) <= key & substring(eco, first=5, last=7) >= key){
+     df_eco_rapid[eco, "values"] = df_eco_rapid[eco, "values"] + val
+     break
+    }
+  }
+}
+
+top_eco_rapid = df_eco_rapid[order(-df_eco_rapid$values),][1:5,]
+colnames(top_eco_rapid) = c("ECO", "values", "Name")
+rownames(top_eco_rapid) = NULL
+```
+
+
+
+
+BULLET {data-icon="fa-rocket"}
+===========================================================================
+
+
+```{r make_chart_2, include=FALSE}
+library(ggplot2)
+library(scales)
+library(reshape)
+
+win = round(nrow(data_bullet[(data_bullet$Result=='Win'),])/nrow(data_bullet) * 100, 1)
+lost = round(nrow(data_bullet[(data_bullet$Result=='Lost'),])/nrow(data_bullet) * 100, 1)
+draw = round(100 - win - lost, 1)
+
+
+library(plotly)
+x <- c('Win', 'Draw', 'Lost')
+y <- c(win, draw, lost)
+text <- c(paste0(win, '%'), paste0(draw, '%'), paste0(lost, '%'))
+data <- data.frame(x, y, text)
+
+fig <- plot_ly(data, x = ~x, y = ~y, type = 'bar', text = text,
+        marker = list(color = c('B4F3CC','rgba(168, 216, 234, 0.5)', 'FFC5C2'),
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5)))
+
+fig <- fig %>% layout(title = "Annual Match Stats",
+         xaxis = list(title = "match results"),
+         yaxis = list(title = "rate (%)"))
+```
+
+
+```{r metrics_bullet, include=FALSE}
+rownames(data_bullet) <- 1:nrow(data_bullet)
+win_rows <- data_bullet[(data_bullet$Result=='Win'),]
+
+aux <- c()
+for (i in 1:nrow(data_bullet)){
+  if (i %in% rownames(win_rows)){
+    aux <- c(aux, 1)
+  }
+  else {
+    aux <- c(aux, 0)
+  }
+}
+
+
+Best_Win_bullet = max(data_bullet[(data_bullet$Result=='Win'), "RivalElo"])
+
+
+XX <- rle(aux)
+Best_Win_Streak_bullet = max(XX$lengths)
+Mean_ELO_Bullet = round(mean(data_bullet$RivalElo), digits = 1)
+```
+
+
+Row {data-width=175}
+-------------------------------------------
+### Best Win Streak
+```{r Best_win_streak_bullet}
+valueBox(Best_Win_Streak_bullet, icon="ion-flame", color=streak_range[Best_Win_Streak_bullet])
+```
+
+### Openings
+``` {r}
+ img_dt <- top_eco_bullet %>%
+  mutate(img = paste0("![](", ECO, ")"), Board = paste0("<img class='thumb' src='", ECO , ".svg'/>"))  %>%
+  select(Name, Board)
+
+knitr::kable(img_dt, escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+
+
+Row {data-width=175}
+---------
+
+### Best Win
+```{r Best_win_bullet}
+valueBox(Best_Win_bullet, icon = "ion-trophy")
+```
+
+### Average ELO opponent
+```{r Mean_bullet}
+valueBox(Mean_ELO_Bullet, icon="fa-user")
+```
+
+
+
+### Causes
+```{r}
+library(formattable)
+library(kableExtra)
+library(dplyr)
+library(knitr)
+
+proportion_spec <- function(vector){
+  return(proportion(c(100, vector))[2:(length(vector)+1)])
+}
+
+### My codes
+win_results = data_bullet[(data_bullet$Result == 'Win'), ]$Termination
+win_results_cleaned = substring(win_results, nchar(player) + 9)
+win_results_perc = sort(table(win_results_cleaned)/sum(table(win_results)) * 100, decreasing = T)[1:3]
+win_df = data.frame('Win by'= names(win_results_perc), 'win rate' = as.character(round(as.numeric(win_results_perc), 1)))
+colnames(win_df) = c('Wins by', '%')
+
+### Table construction
+ft_dt <- win_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgb(180, 243, 204)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Wins by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+
+
+lost_results = data_bullet[(data_bullet$Result == 'Lost'), ]$Termination
+lost_results_cleaned = substring(lost_results, 5 + 9)
+lost_results_perc = sort(table(lost_results_cleaned)/sum(table(lost_results)) * 100, decreasing = T)[1:3]
+lost_df = data.frame('Losses by'= names(lost_results_perc), 'lost rate' = as.character(round(as.numeric(lost_results_perc), 1)))
+colnames(lost_df) = c('Losses by', '%')
+
+### Table construction
+ft_dt <- lost_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgb(255, 197, 194)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Losses by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+
+drawn_results = data_bullet[data_bullet$Result=='Draw',]$Termination
+drawn_results_cleaned = substring(drawn_results, 6 + 9)
+drawn_results_perc =  sort(table(drawn_results_cleaned)/sum(table(drawn_results)) * 100, decreasing = T)[1:3]
+drawn_df = data.frame('Draws by'= names(drawn_results_perc), 'drawn rate' = as.character(round(as.numeric(drawn_results_perc), 1)))
+colnames(drawn_df) = c('Draws by', '%')
+
+### Table construction
+ft_dt <- drawn_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgba(168, 216, 234, 0.5)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Draws by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+```
+
+
+
+Row
+---------
+
+### Evolution
+
+```{r}
+elo_bullet = data_bullet[, c("PlayerElo", "Date")]
+
+elo_bullet$PlayerElo <- as.numeric(elo_bullet$PlayerElo)
+elo_bullet$Date <- as.Date(elo_bullet$Date)
+
+elo_bullet = elo_bullet %>% group_by(Date) %>% summarise_all(last)
+
+library(plotly)
+maxx <- elo_bullet[which.max(elo_bullet$PlayerElo), ]
+a <- list(
+  x = maxx$Date,
+  y = maxx$PlayerElo,
+  text = paste('max:', maxx$PlayerElo),
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 7,
+  ax = 20,
+  ay = -20
+)
+
+minn <- elo_bullet[which.min(elo_bullet$PlayerElo), ]
+b <- list(
+  x = minn$Date,
+  y = minn$PlayerElo,
+  text = paste('min:', minn$PlayerElo),
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 7,
+  ax = -20,
+  ay = 20
+)
+
+
+p <- plot_ly(elo_bullet, x = ~Date, y = ~PlayerElo, stackgroup = 'one', fillcolor = 'rgba(168, 216, 234, 0.5)') %>% add_lines(name = "Elo")  %>% layout(
+    xaxis = list(title= "Date", gridcolor = 'ffff'), 
+    yaxis = list(title= "Elo", range=c(min(elo_bullet$PlayerElo)-300,max(elo_bullet$PlayerElo)+30)),  
+    title='ELO Evolution')
+
+p <- p %>% layout(annotations = a)  %>% layout(annotations = b)
+
+
+p
+```
+
+
+
+### Distribution
+```{r}
+fig
+```
+
+
+
+
+
+
+BLITZ {data-icon="ion-flash"}
+===========================================================================
+
+```{r make_chart_2_blitz, include=FALSE}
+library(ggplot2)
+library(scales)
+library(reshape)
+
+win = round(nrow(data_blitz[(data_blitz$Result=='Win'),])/nrow(data_blitz) * 100, 1)
+lost = round(nrow(data_blitz[(data_blitz$Result=='Lost'),])/nrow(data_blitz) * 100, 1)
+draw = round(100 - win - lost, 1)
+
+
+library(plotly)
+x <- c('Win', 'Draw', 'Lost')
+y <- c(win, draw, lost)
+text <- c(paste0(win, '%'), paste0(draw, '%'), paste0(lost, '%'))
+data <- data.frame(x, y, text)
+
+fig <- plot_ly(data, x = ~x, y = ~y, type = 'bar', text = text,
+        marker = list(color = c('B4F3CC','rgba(168, 216, 234, 0.5)', 'FFC5C2'),
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5)))
+
+fig <- fig %>% layout(title = "Annual Match Stats",
+         xaxis = list(title = "match results"),
+         yaxis = list(title = "rate (%)"))
+```
+
+
+```{r metrics_blitz, include=FALSE}
+rownames(data_blitz) <- 1:nrow(data_blitz)
+win_rows <- data_blitz[(data_blitz$Result=='Win'),]
+
+aux <- c()
+for (i in 1:nrow(data_blitz)){
+  if (i %in% rownames(win_rows)){
+    aux <- c(aux, 1)
+  }
+  else {
+    aux <- c(aux, 0)
+  }
+}
+
+
+Best_Win_blitz = max(data_blitz[(data_blitz$Result=='Win'), "RivalElo"])
+
+
+XX <- rle(aux)
+Best_Win_Streak_blitz = max(XX$lengths)
+Mean_ELO_blitz = round(mean(data_blitz$RivalElo), digits = 1)
+```
+
+
+Row {data-width=175}
+-------------------------------------------
+### Best Win Streak
+```{r Best_win_streak_blitz}
+valueBox(Best_Win_Streak_blitz, icon="ion-flame", color=streak_range[Best_Win_Streak_blitz])
+```
+
+### Openings
+``` {r}
+ img_dt <- top_eco_blitz %>%
+  mutate(img = paste0("![](", ECO, ")"), Board = paste0("<img class='thumb' src='", ECO , ".svg'/>"))  %>%
+  select(Name, Board)
+
+knitr::kable(img_dt, escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+
+
+Row {data-width=175}
+---------
+
+### Best Win
+```{r Best_win_blitz}
+valueBox(Best_Win_blitz, icon = "ion-trophy")
+```
+
+### Average ELO opponent
+```{r Mean_blitz}
+valueBox(Mean_ELO_blitz, icon="fa-user")
+```
+
+
+
+### Causes
+```{r}
+library(formattable)
+library(kableExtra)
+library(dplyr)
+library(knitr)
+
+proportion_spec <- function(vector){
+  return(proportion(c(100, vector))[2:(length(vector)+1)])
+}
+
+### My codes
+win_results = data_blitz[(data_blitz$Result == 'Win'), ]$Termination
+win_results_cleaned = substring(win_results, nchar(player) + 9)
+win_results_perc = sort(table(win_results_cleaned)/sum(table(win_results)) * 100, decreasing = T)[1:3]
+win_df = data.frame('Win by'= names(win_results_perc), 'win rate' = as.character(round(as.numeric(win_results_perc), 1)))
+colnames(win_df) = c('Wins by', '%')
+
+### Table construction
+ft_dt <- win_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgb(180, 243, 204)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Wins by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+
+
+lost_results = data_blitz[(data_blitz$Result == 'Lost'), ]$Termination
+lost_results_cleaned = substring(lost_results, 5 + 9)
+lost_results_perc = sort(table(lost_results_cleaned)/sum(table(lost_results)) * 100, decreasing = T)[1:3]
+lost_df = data.frame('Losses by'= names(lost_results_perc), 'lost rate' = as.character(round(as.numeric(lost_results_perc), 1)))
+colnames(lost_df) = c('Losses by', '%')
+
+### Table construction
+ft_dt <- lost_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgb(255, 197, 194)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Losses by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+
+drawn_results = data_blitz[data_blitz$Result=='Draw',]$Termination
+drawn_results_cleaned = substring(drawn_results, 6 + 9)
+drawn_results_perc =  sort(table(drawn_results_cleaned)/sum(table(drawn_results)) * 100, decreasing = T)[1:3]
+drawn_df = data.frame('Draws by'= names(drawn_results_perc), 'drawn rate' = as.character(round(as.numeric(drawn_results_perc), 1)))
+colnames(drawn_df) = c('Draws by', '%')
+
+### Table construction
+ft_dt <- drawn_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgba(168, 216, 234, 0.5)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Draws by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+```
+
+
+
+Row
+---------
+
+### Evolution
+
+```{r}
+elo_blitz = data_blitz[, c("PlayerElo", "Date")]
+
+elo_blitz$PlayerElo <- as.numeric(elo_blitz$PlayerElo)
+elo_blitz$Date <- as.Date(elo_blitz$Date)
+
+elo_blitz = elo_blitz %>% group_by(Date) %>% summarise_all(last)
+
+library(plotly)
+maxx <- elo_blitz[which.max(elo_blitz$PlayerElo), ]
+a <- list(
+  x = maxx$Date,
+  y = maxx$PlayerElo,
+  text = paste('max:', maxx$PlayerElo),
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 7,
+  ax = 20,
+  ay = -20
+)
+
+minn <- elo_blitz[which.min(elo_blitz$PlayerElo), ]
+b <- list(
+  x = minn$Date,
+  y = minn$PlayerElo,
+  text = paste('min:', minn$PlayerElo),
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 7,
+  ax = -20,
+  ay = 20
+)
+
+
+p <- plot_ly(elo_blitz, x = ~Date, y = ~PlayerElo, stackgroup = 'one', fillcolor = 'rgba(168, 216, 234, 0.5)') %>% add_lines(name = "Elo")  %>% layout(
+    xaxis = list(title= "Date", gridcolor = 'ffff'), 
+    yaxis = list(title= "Elo", range=c(min(elo_blitz$PlayerElo)-300,max(elo_blitz$PlayerElo)+30)),  
+    title='ELO Evolution')
+
+p <- p %>% layout(annotations = a)  %>% layout(annotations = b)
+
+
+p
+```
+
+
+
+### Distribution
+```{r}
+fig
+```
+
+
+
+RAPID {data-icon="fa-clock"}
+===========================================================================
+
+```{r make_chart_2_rapid, include=FALSE}
+library(ggplot2)
+library(scales)
+library(reshape)
+
+win = round(nrow(data_rapid[(data_rapid$Result=='Win'),])/nrow(data_rapid) * 100, 1)
+lost = round(nrow(data_rapid[(data_rapid$Result=='Lost'),])/nrow(data_rapid) * 100, 1)
+draw = round(100 - win - lost, 1)
+
+
+library(plotly)
+x <- c('Win', 'Draw', 'Lost')
+y <- c(win, draw, lost)
+text <- c(paste0(win, '%'), paste0(draw, '%'), paste0(lost, '%'))
+data <- data.frame(x, y, text)
+
+fig <- plot_ly(data, x = ~x, y = ~y, type = 'bar', text = text,
+        marker = list(color = c('B4F3CC','rgba(168, 216, 234, 0.5)', 'FFC5C2'),
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5)))
+
+fig <- fig %>% layout(title = "Annual Match Stats",
+         xaxis = list(title = "match results"),
+         yaxis = list(title = "rate (%)"))
+```
+
+
+```{r metrics_rapid, include=FALSE}
+rownames(data_rapid) <- 1:nrow(data_rapid)
+win_rows <- data_rapid[(data_rapid$Result=='Win'),]
+
+aux <- c()
+for (i in 1:nrow(data_rapid)){
+  if (i %in% rownames(win_rows)){
+    aux <- c(aux, 1)
+  }
+  else {
+    aux <- c(aux, 0)
+  }
+}
+
+
+Best_Win_rapid = max(data_rapid[(data_rapid$Result=='Win'), "RivalElo"])
+
+
+XX <- rle(aux)
+Best_Win_Streak_rapid = max(XX$lengths)
+Mean_ELO_rapid = round(mean(data_rapid$RivalElo), digits = 1)
+```
+
+
+Row {data-width=175}
+-------------------------------------------
+### Best Win Streak
+```{r Best_win_streak_rapid}
+valueBox(Best_Win_Streak_rapid, icon="ion-flame", color=streak_range[Best_Win_Streak_rapid])
+```
+
+### Openings
+``` {r}
+ img_dt <- top_eco_rapid %>%
+  mutate(img = paste0("![](", ECO, ")"), Board = paste0("<img class='thumb' src='", ECO , ".svg'/>"))  %>%
+  select(Name, Board)
+
+knitr::kable(img_dt, escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+
+
+Row {data-width=175}
+---------
+
+### Best Win
+```{r Best_win_rapid}
+valueBox(Best_Win_rapid, icon = "ion-trophy")
+```
+
+### Average ELO opponent
+```{r Mean_rapid}
+valueBox(Mean_ELO_rapid, icon="fa-user")
+```
+
+
+
+### Causes
+```{r}
+library(formattable)
+library(kableExtra)
+library(dplyr)
+library(knitr)
+
+proportion_spec <- function(vector){
+  return(proportion(c(100, vector))[2:(length(vector)+1)])
+}
+
+### My codes
+win_results = data_rapid[(data_rapid$Result == 'Win'), ]$Termination
+win_results_cleaned = substring(win_results, nchar(player) + 9)
+win_results_perc = sort(table(win_results_cleaned)/sum(table(win_results)) * 100, decreasing = T)[1:3]
+win_df = data.frame('Win by'= names(win_results_perc), 'win rate' = as.character(round(as.numeric(win_results_perc), 1)))
+colnames(win_df) = c('Wins by', '%')
+
+### Table construction
+ft_dt <- win_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgb(180, 243, 204)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Wins by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+
+
+lost_results = data_rapid[(data_rapid$Result == 'Lost'), ]$Termination
+lost_results_cleaned = substring(lost_results, 5 + 9)
+lost_results_perc = sort(table(lost_results_cleaned)/sum(table(lost_results)) * 100, decreasing = T)[1:2]
+lost_df = data.frame('Losses by'= names(lost_results_perc), 'lost rate' = as.character(round(as.numeric(lost_results_perc), 1)))
+colnames(lost_df) = c('Losses by', '%')
+
+### Table construction
+ft_dt <- lost_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgb(255, 197, 194)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Losses by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+
+drawn_results = data_rapid[data_rapid$Result=='Draw',]$Termination
+drawn_results_cleaned = substring(drawn_results, 6 + 9)
+drawn_results_perc =  sort(table(drawn_results_cleaned)/sum(table(drawn_results)) * 100, decreasing = T)[1:3]
+drawn_df = data.frame('Draws by'= names(drawn_results_perc), 'drawn rate' = as.character(round(as.numeric(drawn_results_perc), 1)))
+colnames(drawn_df) = c('Draws by', '%')
+
+### Table construction
+ft_dt <- drawn_df
+row.names(ft_dt) <- NULL
+# ft_dt$mpg <- color_tile("white", "orange")(ft_dt$mpg)
+ft_dt$'%' <- color_bar('rgba(168, 216, 234, 0.5)', fun = proportion_spec)(ft_dt$'%')
+ft_dt <- ft_dt[, c("Draws by","%")]
+
+kbl(ft_dt, escape = F) %>%
+  kable_paper("hover", full_width = F) %>%
+  column_spec(2, width = "6cm")
+```
+
+
+
+Row
+---------
+
+### Evolution
+
+```{r}
+elo_rapid = data_rapid[, c("PlayerElo", "Date")]
+
+elo_rapid$PlayerElo <- as.numeric(elo_rapid$PlayerElo)
+elo_rapid$Date <- as.Date(elo_rapid$Date)
+
+elo_rapid = elo_rapid %>% group_by(Date) %>% summarise_all(last)
+
+library(plotly)
+maxx <- elo_rapid[which.max(elo_rapid$PlayerElo), ]
+a <- list(
+  x = maxx$Date,
+  y = maxx$PlayerElo,
+  text = paste('max:', maxx$PlayerElo),
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 7,
+  ax = 20,
+  ay = -20
+)
+
+minn <- elo_rapid[which.min(elo_rapid$PlayerElo), ]
+b <- list(
+  x = minn$Date,
+  y = minn$PlayerElo,
+  text = paste('min:', minn$PlayerElo),
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 7,
+  ax = -20,
+  ay = 20
+)
+
+
+p <- plot_ly(elo_rapid, x = ~Date, y = ~PlayerElo, stackgroup = 'one', fillcolor = 'rgba(168, 216, 234, 0.5)') %>% add_lines(name = "Elo")  %>% layout(
+    xaxis = list(title= "Date", gridcolor = 'ffff'), 
+    yaxis = list(title= "Elo", range=c(min(elo_rapid$PlayerElo)-300,max(elo_rapid$PlayerElo)+30)),  
+    title='ELO Evolution')
+
+p <- p %>% layout(annotations = a)  %>% layout(annotations = b)
+
+
+p
+```
+
+
+
+### Distribution
+```{r}
+fig
+```
