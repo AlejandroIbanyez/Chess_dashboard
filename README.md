@@ -1,11 +1,11 @@
 # Chess_dashboard: User-customized chess.com data based dashboard using R.
 
 ## Background
-La inspiración de este proyecto viene de Spotify Wrapped, un evento realizado anualmente en el que la empresa Spotify, famosa aplicación de música en streaming, muestra a sus usuarios un resumen de su actividad a lo largo del año, cosa que es ampliamente compartida en redes sociales.
+The inspiration for this project comes from Spotify Wrapped, an event held annually in which the company Spotify, a famous streaming music application, shows its users a summary of its activity throughout the year, which is widely shared on social networks.
 
-Decidimos entonces realizar un dashboard con esta idea, pero aplicada en el mundo del ajedrez, para lo que empleamos la plataforma de ajedrez online más usada a nivel global, siendo empleada tanto por celebridades de la élite del deporte como influencers ajenos al mismo.
+So we decided to make a dashboard with this idea but applied it to the world of chess, for which we used the most widely used online chess platform globally, being used both by elite sports celebrities and influencers outside of it.
 
-Para hacer este resumen del 2021 del usuario, primero necesitamos aclarar que nos quedaremos con 3 categorías en las que se clasifican los juegos, según el tiempo disponible por cada jugador, bullet (hasta 1 minuto por jugador), blitz (entre 3 y 5 minutos por jugador) y rapid (entre 10 y 45 minutos por jugador), por lo que realmente tendremos un dashboard por cada una que únicamente se verán diferenciados por los datos mostrados.
+To make this summary of the user's 2021, we first need to clarify that we will be left with three categories in which the games are classified, according to the time available for each player, bullet (up to 1 minute per player), blitz (between 3 and 5 minutes per player) and rapid (between 10 and 45 minutes per player), so we will really have a dashboard for each one that will only be differentiated by the data shown.
 
-## Pasos a seguir
-Para poder generar un dashboard que incluye dichas informaciones, se debe ejecutar los códigos disponible en este GitHub (**Dashboard.Rmd**): se construirá un dashboard interactivo donde se muestra cómo fue la evolución del usuario a lo largo del año, distribución de las victorias, derrotas y empates y causas de las mismas.
+## Steps to follow
+In order to generate a dashboard that includes said information, the codes available on this GitHub (**Dashboard.Rmd**) must be executed: an interactive dashboard will be built showing how the user's evolution was throughout the year, distribution of victories, defeats and draws and their causes.
